@@ -1,0 +1,222 @@
+---
+title: "Pertemuan 2 MPDW"
+author: "Jonathan Hizkia"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+library(dplyr)
+library(TTR)
+library(forecast)
+library(lmtest) #digunakan untuk uji formal pendeteksian autokorelasi
+library(orcutt) #untuk membuat model regresi Cochrane-Orcutt
+library(HoRM) #untuk membuat model regresi Hildreth-Lu
+library(readxl)
+library(ggcorrplot)
+```
+
+#Input data
+```{r}
+setwd("C:/Users/JONATHAN HIZKIA/Documents/R_Working_Directory")
+dataM2= read_excel("Data_MPDW_2.xlsx",sheet = "Sheet2")
+dataM2 = as.data.frame(dataM2)
+dataM2
+```
+#par(mfrow = c(2,2))
+```{r}
+#Eksplorasi Data
+#Pembuatan Scatter Plot
+plot(dataM2$Total,dataM2$Solid, pch = 20, col = "blue",
+     main = "Scatter Plot Solid vs Nilai Total",
+     xlab = "Solid",
+     ylab = "Total")
+plot(dataM2$Total,dataM2$Liquid, pch = 20, col = "blue",
+     main = "Scatter Plot Liquid vs Nilai Total",
+     xlab = "Liquid",
+     ylab = "Total")
+plot(dataM2$Solid,dataM2$Liquid, pch = 20, col = "blue",
+     main = "Scatter Plot Solid vs Nilai Liquid",
+     xlab = "Liquid",
+     ylab = "Total")
+#Menampilkan Nilai Korelasi
+cor(dataM2$Solid,dataM2$Total)
+cor(dataM2$Liquid,dataM2$Total)
+cor(dataM2$Liquid,dataM2$Solid)
+
+```
+Berdasarkan scatter plot di atas, terlihat adanya hubungan / korelasi negatif antara peubah solid dengan peubah liquid. Hal tersebut juga diperkuat dengan hasil perhitungan aplikasi `R` di mana didapatkan nilai korelasi sebesar $-0.7097913$.
+
+Setelah mengetahui adanya hubungan antar dua peubah, maka model regresi dapat ditentukan.
+
+## Regresi
+
+```{r}
+#Pembuatan Model Regresi
+#model regresi
+model<- lm(Total~Solid+Liquid, data = dataM2)
+summary(model)
+```
+Model yang dihasilkan adalah $$y_i=67740+0.4491_s+0.8842x_t+1.011x_s$$ Berdasarkan ringkasan model dapat diketahui bahwa hasil uji F memiliki *p-value* \< $\alpha$ (5%). Artinya, minimal terdapat satu variabel yang berpengaruh nyata terhadap model. Hasil uji-t parsial kedua parameter regresi, yaitu intersep dan koefisien regresi juga menunjukkan hal yang sama, yaitu memiliki *p-value* \< $\alpha$ (5%) sehingga nyata dalam taraf 5%. Selanjutnya dapat dilihat juga nilai $R^2=0.9049$. Artinya, sebesar 90.49% keragaman nilai IPM dapat dijelaskan oleh peubah tahun. Hasil ini menunjukkan hasil yang bagus, seolah mendapatkan hasil terbaik. Namun, kita perlu melakukan uji terhadap sisaannya seperti berikut ini.
+```{r}
+#sisaan dan fitted value
+sisaan<- residuals(model)
+fitValue<- predict(model)
+
+#Diagnostik dengan eksploratif
+par(mfrow = c(2,2))
+qqnorm(sisaan)
+qqline(sisaan, col = "steelblue", lwd = 2)
+plot(fitValue, sisaan, col = "steelblue", pch = 20, xlab = "Sisaan", ylab = "Fitted Values", main = "Sisaan vs Fitted Values")
+abline(a = 0, b = 0, lwd = 2)
+hist(sisaan, col = "steelblue")
+plot(seq(1,101,1), sisaan, col = "steelblue", pch = 20, xlab = "Sisaan", ylab = "Order", main = "Sisaan vs Order")
+lines(seq(1,101,1), sisaan, col = "red")
+abline(a = 0, b = 0, lwd = 2)
+reduced_data <- subset(dataM2, select = -Total)
+corr_matrix = round(cor(reduced_data), 2)
+ggcorrplot(corr_matrix, hc.order = TRUE, type = "lower",
+          lab = TRUE)
+
+```
+Dua plot di samping kiri digunakan untuk melihat apakah sisaan menyebar normal. Normal Q-Q Plot di atas menunjukkan bahwa sisaan cenderung menyebar normal walaupun sepertinya ada beberapa pencilan, tetapi histogram dari sisaan tidak menunjukkan data menyebar secara normal. Selanjutnya, dua plot di samping kanan digunakan untuk melihat autokorelasi. Plot Sisaan vs *Fitted Value* dan Plot Sisaan vs *Order* menunjukkan adanya pola pada sisaan. Untuk lebih lanjut akan digunakan uji formal melihat normalitas sisaan dan plot ACF dan PACF untuk melihat apakah ada autokorelasi atau tidak.Selanjutanya plot korelasi dikanan menunjukan adanya hubungan yang cukup kuat antara peubah Solid dan peubah Liquid.
+
+```{r}
+#Melihat Sisaan Menyebar Normal/Tidak
+#H0: sisaan mengikuti sebaran normal
+#H1: sisaan tidak mengikuti sebaran normal
+shapiro.test(sisaan)
+ks.test(sisaan, "pnorm", mean=mean(sisaan), sd=sd(sisaan))
+ks.test(dataM2$Solid,dataM2$Liquid)
+```
+Berdasarkan uji formal Saphiro-Wilk didapatkan nilai *p-value* \< $\alpha$ (5%). Artinya,  tidak cukup bukti untuk menyatakan sisaan berdistribusi normal. Sementara itu berdasarkan uji formal Kolmogorov-Smirnov satu sample didapatkan nilai *p-value* \> $\alpha$ (5%). Artinya cukup bukti untuk menyatakan sisaan berdistribusi normal. Sementara ketika dilakukan uji formal Kolmogorov-Smirnov dua sample didapatkan nilai *p-value* \< $\alpha$ (5%). Artinya data solid dan data liquid tidak mengikuti sebaran yang sama. 
+
+```{r}
+#ACF dan PACF identifikasi autokorelasi
+par(mfrow = c(1,2))
+acf(sisaan,type = "correlation")
+pacf(sisaan)
+```
+Berdasarkan plot ACF dan PACF, terlihat bahwa data mempunyai autokorelasi. Namun, untuk lebih memastikan akan dilakukan uji formal dengan uji Durbin Watson.
+
+```{r}
+#Deteksi autokorelasi dengan uji-Durbin Watson
+#H0: tidak ada autokorelasi
+#H1: ada autokorelasi
+dwtest(model)
+```
+Berdasarkan hasil DW Test, didapatkan nilai $DW = 0.9838$ dan *p-value* = $4.097e-08$. Berdasarkan tabel Durbin-Watson diperoleh nilai $DL = 1.634$ dan $DU = 1.715$. Nilai DW  berada kurang dari nilai DL dan DU. Artinya,  dapat dikatakan berada di daerah autokorelasi positif . Hal ini diperkuat dengan nilai *p-value* \< 0.05 dapat disimpulkan bahwa tolak H0, cukup bukti mengatakan adanya autokorelasi. Oleh karena itu, diperlukan penangan autokorelasi. Penanganan yang akan digunakan menggunakan dua metode, yaitu Cochrane-Orcutt dan Hildret-Lu.
+
+
+## Penanganan Autokorelasi
+
+### Metode Cochrane-Orcutt
+
+Penanganan metode Cochrane-Orcutt dapat dilakukan dengan bantuan packages Orcutt pada aplikasi `R` maupun secara manual. Berikut ini ditampilkan cara menggunakan bantuan `library` *packages* `Orcutt`.
+```{r}
+#Penanganan Autokorelasi Cochrane-Orcutt
+modelCO<-cochrane.orcutt(model, max.iter = 100000)
+modelCO
+```
+Hasil keluaran model setelah dilakukan penanganan adalah sebagai berikut. $$y_i=1.75940.3+0.9942530x_s+1.064634x_l$$ Hasil juga menunjukkan bahwa nilai DW dan p-value meningkat menjadi $1.64369  $ dan $0.03801$. Nilai DW berada diantara nilai DU dan DL atau $1.634<DW>1.715$. Artinya masih inkonlusif dan belum cukup bukti menyatakan bahwa sisaan tidak terdapat autokorelasi pada taraf nyata 5%. Untuk nilai $ρ ̂$ optimum yang digunakan adalah $0.99776$. Nilai tersebut dapat diketahui dengan *syntax* berikut.
+```{r}
+#Rho optimum
+rho<- modelCO$rho
+rho
+```
+Selanjutnya akan dilakukan transformasi secara manual dengan syntax berikut ini.
+
+
+```{r}
+#Transformasi Manual
+Total.trans<- dataM2$Total[-1]-dataM2$Total[-101]*rho
+Solid.trans<- dataM2$Solid[-1]-dataM2$Solid[-101]*rho
+Liquid.trans<- dataM2$Liquid[-1]-dataM2$Liquid[-101]*rho
+modelCOmanual<- lm(Total.trans~Solid.trans+Liquid.trans)
+summary(modelCOmanual)
+```
+Hasil model transformasi bukan merupakan model sesungguhnya. Koefisien regresi masih perlu dicari kembali mengikuti $β_0^*=β_0+ρ ̂β_0$ dan $β_1^*=β_1$.
+
+```{r}
+#Mencari Penduga Koefisien Regresi setelah Transformasi ke Persamaan Awal
+b0bintang <- modelCOmanual$coefficients[-2]
+b0 <- b0bintang/(1-rho)
+b1 <- modelCOmanual$coefficients[-1]
+b0
+b1
+```
+Hasil perhitungan koefisien regresi tersebut akan menghasilkan hasil yang sama dengan model yang dihasilkan menggunakan *packages*.
+
+### Metode Hildreth-Lu
+
+Penanganan kedua adalah menggunakan metode Hildreth-Lu. Metode ini akan mencari nilai SSE terkecil dan dapat dicari secara manual maupun menggunakan packages. Jika menggunakan packages, gunakan `library` *packages* `HORM`.
+```{r}
+#Penanganan Autokorelasi Hildreth lu
+# Hildreth-Lu
+hildreth.lu.func<- function(r, model){
+  x <- model.matrix(model)[,-1]
+  y <- model.response(model.frame(model))
+  n <- length(y)
+  t <- 2:n
+  y <- y[t]-r*y[t-1]
+  x <- x[t]-r*x[t-1]
+  
+  return(lm(y~x))
+}
+
+#Pencarian rho yang meminimumkan SSE
+r <- c(seq(0.1,1.5, by= 0.1))
+tab <- data.frame("rho" = r, "SSE" = sapply(r, function(i){deviance(hildreth.lu.func(i, model))}))
+round(tab, 4)
+```
+Pertama-tama akan dicari di mana kira-kira $ρ$ yang menghasilkan SSE minimum. Pada hasil di atas terlihat $ρ$ minimum ketika 1. Namun, hasil tersebut masih kurang teliti sehingga akan dicari kembali $ρ$ yang lebih optimum dengan ketelitian yang lebih. Jika sebelumnya jarak antar $ρ$ yang dicari adalah 0.1, kali ini jarak antar $ρ$ adalah 0.001 dan dilakukan pada selang 0.8 sampai dengan 1.2.
+
+```{r}
+#Rho optimal di sekitar 0.9
+rOpt <- seq(0.8,1.2, by= 0.001)
+tabOpt <- data.frame("rho" = rOpt, "SSE" = sapply(rOpt, function(i){deviance(hildreth.lu.func(i, model))}))
+head(tabOpt[order(tabOpt$SSE),])
+
+#Grafik SSE optimum
+par(mfrow = c(1,1))
+plot(tab$SSE ~ tab$rho , type = "l", xlab = "Rho", ylab = "SSE")
+abline(v = tabOpt[tabOpt$SSE==min(tabOpt$SSE),"rho"], lty = 2, col="red",lwd=2)
+text(x=0.341, y=0.2397500, labels = "rho=0.992", cex = 0.8)
+```
+Perhitungan yang dilakukan aplikasi `R` menunjukkan bahwa nilai $ρ$ optimum, yaitu saat SSE terkecil terdapat pada nilai $ρ=0.992$. Hal tersebut juga ditunjukkan pada plot. Selanjutnya, model dapat didapatkan dengan mengevaluasi nilai $ρ$ ke dalam fungsi `hildreth.lu.func`, serta dilanjutkan dengan pengujian autokorelasi dengan uji Durbin-Watson. Namun, setelah pengecekan tersebut tidak lupa koefisien regresi tersebut digunakan untuk transformasi balik. Persamaan hasil transformasi itulah yang menjadi persamaan sesungguhnya.
+
+```{r}
+#Model terbaik
+modelHL <- hildreth.lu.func(0.992, model)
+summary(modelHL)
+
+#Transformasi Balik
+cat("y = ", coef(modelHL)[1]/(1-0.992), "+", coef(modelHL)[2],"x", sep = "")
+```
+Setelah dilakukan tranformasi balik, didapatkan model dengan metode Hildreth-Lu sebagai berikut. $$y_i=150077+0.9496982x$$
+
+
+```{r}
+#Deteksi autokorelasi
+dwtest(modelHL)
+```
+Hasil uji Durbin-Watson juga menunjukkan bawah nilai DW sebesar $1.7007$ berada pada selang daerah tidak ada autokorelasi, yaitu pada rentang DU \< DW \< 4-DU atau $1.634 < DW < 1.715$. Hal tersebut juga didukung oleh *p-value* sebesar $0.09404$, di mana *p-value* \> $\alpha$=5%. Artinya tak tolak $H_0$ atau belum cukup bukti menyatakan bahwa ada autokorelasi dalam data nilai IPM dengan metode Hildreth-Lu pada taraf nyata 5%.
+
+Terakhir, akan dibandingkan nilai SSE dari ketiga metode (metode awal, metode Cochrane-Orcutt, dan Hildreth-Lu).
+#Kenapa datanya menjadi sangat banyak ? 
+```{r}
+#Perbandingan
+sseModelawal <- anova(model)$`Sum Sq`[-1]
+sseModelCO <- anova(modelCOmanual)$`Sum Sq`[-1]
+sseModelHL <- anova(modelHL)$`Sum Sq`[-1]
+mseModelawal <- sseModelawal/length(dataM2)
+mseModelCO <- sseModelCO/length(dataM2)
+mseModelHL <- sseModelHL/length(dataM2)
+akurasi <- matrix(c(sseModelawal,sseModelCO,sseModelHL,
+                    mseModelawal,mseModelCO,mseModelHL),nrow=2,ncol=3,byrow = T)
+colnames(akurasi) <- c("Model Awal", "Model Cochrane-Orcutt", "Model Hildreth-Lu")
+row.names(akurasi) <- c("SSE","MSE")
+akurasi
+```
+#Kesimpulan
+Setelah dilakukan Analisis metode Hidreth-lu berhasil memperbaiki autokorelasi sementara metode cochrane-orcutt gagal , ada beberapa kemungkinan akan terjadinya hal ini yaitu karena autokorelasi bersifat positif dan sumber mempunyai sampel yang kecil (sumber = https://www.datasciencecentral.com/finding-and-fixing-autocorrelation/)
