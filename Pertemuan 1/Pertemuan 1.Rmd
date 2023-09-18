@@ -5,7 +5,7 @@ library("TSA")
 
 library(rio)
 
-data1 <- import("https://raw.githubusercontent.com/Jonathanhizkia/JOJOPR/main/DataT1_MPDW.xlsx")
+data1 <- import("https://raw.githubusercontent.com/Jonathanhizkia/JOJOPR/main/pertemuan 1/DataT1_MPDW.xlsx")
 
 View(data1)
 str(data1)
