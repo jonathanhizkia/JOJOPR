@@ -1,0 +1,284 @@
+---
+title: "Pertemuan 3"
+author: "Jonathan Hizkia"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+library(dLagM)
+library(dynlm)
+library(MLmetrics)
+library(lmtest)
+library(car)
+library(readxl)
+library(ggplot2)
+```
+
+```{r}
+setwd("C:/Users/JONATHAN HIZKIA/Documents/R_Working_Directory")
+dataM2= read_excel("Data MPDW 3.xlsx",sheet = "Sheet1")
+dataM2 = as.data.frame(dataM2)
+dataM2
+str(dataM2)
+dataM2
+```
+
+```{r}
+#SPLIT DATA
+train<-dataM2[1:211,]
+test<-dataM2[212:264,]
+```
+
+```{r}
+#data time series
+train.ts<-ts(train)
+test.ts<-ts(test)
+data.ts<-ts(dataM2)
+```
+
+## Model Koyck
+
+```{r}
+#MODEL KOYCK
+model.koyck <- koyckDlm(x = train$Xt, y = train$Yt)
+summary(model.koyck)
+AIC(model.koyck)
+BIC(model.koyck)
+```
+Dari hasil tersebut, didapat bahwa peubah $x_t$ dan $y_{t-1}$ memiliki nilai $P-Value<0.05$. Hal ini menunjukkan bahwa peubah $x_t$ dan $y_{t-1}$ berpengaruh signifikan terhadap $y$. Adapun model keseluruhannya adalah sebagai berikut
+
+$$
+\hat{Y_t}=-1213.0997-0.1054X_t+1.0957Y_{t-1}
+$$
+### Peramalan dan Akurasi
+
+Berikut adalah hasil peramalan y untuk 5 periode kedepan menggunakan model koyck
+```{r}
+fore.koyck <- forecast(model = model.koyck, x=test$Xt, h=53)
+fore.koyck
+mape.koyck <- MAPE(fore.koyck$forecasts, test$Yt)
+#akurasi data training
+GoF(model.koyck)
+```
+## Regression with Distributed Lag
+### Pemodelan (Lag=2)
+```{r}
+model.dlm <- dlm(x = train$Xt,y = train$Yt , q = 2)
+summary(model.dlm)
+AIC(model.dlm)
+BIC(model.dlm)
+```
+Dari hasil diatas, didapat bahwa $P-value$ dari  $x_t<0.05$. Hal ini menunjukkan bahwa intercept dan $x_t$ berpengaruh signifikan terhadap $y$. Adapun model keseluruhan yang terbentuk adalah sebagai berikut
+
+$$
+\hat{Y_t}=-961.05793+0.95643X_t+0.01623X_{t-1}+0.07699X_{t-2}
+$$
+### Peramalan dan Akurasi
+
+Berikut merupakan hasil peramalan $y$ untuk 53 periode kedepan
+```{r}
+fore.dlm <- forecast(model = model.dlm, x=test$Xt, h=53)
+fore.dlm
+mape.dlm <- MAPE(fore.dlm$forecasts, test$Yt)
+#akurasi data training
+GoF(model.dlm)
+```
+### *Lag* Optimum
+```{r}
+#penentuan lag optimum 
+finiteDLMauto(formula = Yt ~ Xt,
+              data = data.frame(train), q.min = 1, q.max = 6,
+              model.type = "dlm", error.type = "AIC", trace = FALSE)
+```
+Berdasarkan output tersebut, lag optimum didapatkan ketika lag=6. Selanjutnya dilakukan pemodelan untuk lag=6
+
+```{r}
+#model dlm dengan lag optimum
+model.dlm2 <- dlm(x = train$Xt,y = train$Yt , q = 6)
+summary(model.dlm2)
+AIC(model.dlm2)
+BIC(model.dlm2)
+```
+Dari hasil tersebut terdapat beberapa peubah yang berpengaruh signifikan terhadap taraf nyata 5% yaitu $x_t$. Adapun keseluruhan model yang terbentuk adalah
+$$
+\hat{Y_t}=-681.27319+0.88854X_t+...+0.04559X_{t-6}
+$$
+Adapun hasil peramalan 53 periode kedepan menggunakan model tersebut adalah sebagai berikut
+
+```{r}
+#peramalan dan akurasi
+fore.dlm2 <- forecast(model = model.dlm2, x=test$Xt, h=53)
+mape.dlm2<- MAPE(fore.dlm2$forecasts, test$Yt)
+#akurasi data training
+GoF(model.dlm2)
+```
+Model tersebut merupakan model yang sangat baik dengan nilai MAPE yang kurang dari 10%.
+
+## Model Autoregressive
+
+```{r}
+model.ardl <- ardlDlm(x = train$Xt, y = train$Yt, p = 1 , q = 1)
+summary(model.ardl)
+AIC(model.ardl)
+BIC(model.ardl)
+```
+Hasil di atas menunjukkan bahwa selain peubah $x_{t-1}$, hasil uji t menunjukkan nilai-p pada peubah $\ge0.05$ Hal ini menunjukkan bahwa peubah $x_t$ , $x_{t-1}$ ,dan $y_{t-1}$   berpengaruh signifikan terhadap $y_t$. Model keseluruhannya adalah sebagai berikut:
+$$
+\hat{Y}=0.164605+0.995995X_t-1.108932X_{t-1}+1.113135Y_{t-1}
+$$
+### Peramalan dan Akurasi
+
+```{r}
+fore.ardl <- forecast(model = model.ardl, x=test$Xt, h=53)
+fore.ardl
+```
+Data di atas merupakan hasil peramalan untuk 5 periode ke depan menggunakan Model Autoregressive dengan $p=1$ dan $q=1$.
+
+```{r}
+mape.ardl <- MAPE(fore.ardl$forecasts, test$Yt)
+mape.ardl
+#akurasi data training
+GoF(model.ardl)
+```
+Berdasarkan akurasi di atas, terlihat bahwa nilai MAPE keduanya tidak jauh berbeda. Artinya, model regresi dengan distribusi lag ini tidak `overfitted` atau `underfitted`
+
+### *Lag* Optimum
+
+```{r}
+#penentuan lag optimum
+model.ardl.opt <- ardlBoundOrders(data = data.frame(dataM2), ic = "AIC", 
+                                  formula = Yt ~ Xt )
+min_p=c()
+for(i in 1:6){
+  min_p[i]=min(model.ardl.opt$Stat.table[[i]])
+}
+q_opt=which(min_p==min(min_p, na.rm = TRUE))
+p_opt=which(model.ardl.opt$Stat.table[[q_opt]] == 
+              min(model.ardl.opt$Stat.table[[q_opt]], na.rm = TRUE))
+data.frame("q_optimum" = q_opt, "p_optimum" = p_opt, 
+           "AIC"=model.ardl.opt$min.Stat)
+```
+
+Dari tabel di atas, dapat terlihat bahwa nilai AIC terendah didapat ketika $p=6$ dan $q=1$, yaitu sebesar `-20,56587`. Artinya, model autoregressive optimum didapat ketika $p=6$ dan $q=1$.
+
+Selanjutnya dapat dilakukan pemodelan dengan nilai $p$ dan $q$ optimum seperti inisialisasi di langkah sebelumnya.
+
+
+```{r}
+model.ardl <- ardlDlm(x = train$Xt, y = train$Yt, p = 6 , q = 1)
+summary(model.ardl)
+AIC(model.ardl)
+BIC(model.ardl)
+```
+### Peramalan dan Akurasi
+
+```{r}
+fore.ardl <- forecast(model = model.ardl, x=test$Xt, h=53)
+fore.ardl
+```
+Data di atas merupakan hasil peramalan untuk 53 periode ke depan menggunakan Model Autoregressive dengan $p=1$ dan $q=1$.
+
+```{r}
+mape.ardl <- MAPE(fore.ardl$forecasts, test$Yt)
+mape.ardl
+#akurasi data training
+GoF(model.ardl)
+```
+Model tersebut merupakan model yang sangat baik dengan nilai MAPE yang kurang dari 10%.
+
+## Pemodelan DLM & ARDL dengan Library `dynlm`
+
+```{r}
+#sama dengan model dlm q=1
+cons_lm1 <- dynlm(Yt ~ Xt+L(Xt),data = train.ts)
+#sama dengan model ardl p=1 q=0
+cons_lm2 <- dynlm(Yt ~ Xt+L(Yt),data = train.ts)
+#sama dengan ardl p=1 q=1
+cons_lm3 <- dynlm(Yt ~ Xt+L(Xt)+L(Yt),data = train.ts)
+#sama dengan dlm p=2
+cons_lm4 <- dynlm(Yt ~ Xt+L(Xt)+L(Xt,2),data = train.ts)
+```
+
+### Ringkasan Model
+
+```{r}
+summary(cons_lm1)
+summary(cons_lm2)
+summary(cons_lm3)
+summary(cons_lm4)
+```
+#SSE
+```{r}
+deviance(cons_lm1)
+deviance(cons_lm2)
+deviance(cons_lm3)
+deviance(cons_lm4)
+```
+### Uji Diagnostik
+
+```{r}
+#uji model
+if(require("lmtest")) encomptest(cons_lm1, cons_lm2)
+```
+#### Autokorelasi
+
+```{r}
+#durbin watson
+dwtest(cons_lm1)
+dwtest(cons_lm2)
+dwtest(cons_lm3)
+dwtest(cons_lm4)
+```
+
+#### Heterogenitas
+
+```{r}
+bptest(cons_lm1)
+bptest(cons_lm2)
+bptest(cons_lm3)
+bptest(cons_lm4)
+```
+#### Kenormalan
+
+```{r}
+shapiro.test(residuals(cons_lm1))
+shapiro.test(residuals(cons_lm2))
+shapiro.test(residuals(cons_lm3))
+shapiro.test(residuals(cons_lm4))
+```
+
+## Perbandingan Model
+
+```{r}
+akurasi <- matrix(c(mape.koyck, mape.dlm, mape.dlm2, mape.ardl))
+row.names(akurasi)<- c("Koyck","DLM 1","DLM 2","Autoregressive")
+colnames(akurasi) <- c("MAPE")
+akurasi
+```
+Berdasarkan nilai MAPE, model paling optimum didapat pada Model DLM2 karena memiliki nilai MAPE yang terkecil.
+
+### Plot
+
+```{r}
+#Membuat Plot perbandingan 
+ggplot() +
+    geom_line(data=test , aes(x = test$Xt, y = test$Yt), color="black") + geom_line(data=test , aes(x = test$Xt, y = fore.koyck$forecasts), color="red") +
+geom_point(data=test , aes(x = test$Xt, y = test$Yt), color="black") + geom_point(data=test , aes(x = test$Xt, y = fore.koyck$forecasts), color="red")
+
+ggplot() + geom_line(data=test , mapping = aes(x = test$Xt, y = test$Yt), color="black") +
+geom_line(data=test , mapping = aes(x = test$Xt, y = fore.dlm$forecasts), color="purple") + geom_point(data=test , mapping = aes(x = test$Xt, y = test$Yt), color="black") +
+geom_point(data=test , mapping = aes(x = test$Xt, y = fore.dlm$forecasts), color="purple")
+
+ggplot() + geom_line(data=test , mapping = aes(x = test$Xt, y = test$Yt), color="black") +
+geom_line(data=test , mapping = aes(x = test$Xt, y = fore.dlm2$forecasts), color="blue") + geom_point(data=test , mapping = aes(x = test$Xt, y = test$Yt), color="black") +
+geom_point(data=test , mapping = aes(x = test$Xt, y = fore.dlm2$forecasts), color="blue")
+
+ggplot() + geom_line(data=test , mapping = aes(x = test$Xt, y = test$Yt), color="black") +
+geom_line(data=test , mapping = aes(x = test$Xt, y = fore.ardl$forecasts), color="orange") + geom_point(data=test , mapping = aes(x = test$Xt, y = test$Yt), color="black") +
+geom_point(data=test , mapping = aes(x = test$Xt, y = fore.ardl$forecasts), color="orange")
+
+```
+Berdasarkan plot tersebut, terlihat bahwa plot yang paling mendekati data aktualnya adalah Model DLM2, sehingga dapat disimpulkan model terbaik dalam hal ini adalah model regresi DLM2
+
+
